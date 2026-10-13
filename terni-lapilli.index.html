@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Terni Lapilli">
+<meta name="theme-color" content="#f5f3ef" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1d1b19" media="(prefers-color-scheme: dark)">
+<title>Terni Lapilli</title>
+<style>
+:root{--bg:#f5f3ef;--fg:#2b2622;--mute:#8a8178;--line:#2b2622;--pb:#1c1917;--pw:#fbfaf8;--hi:#b5483a;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#1d1b19;--fg:#ece7e1;--mute:#9a9188;--line:#ece7e1;--pb:#0d0c0b;--pw:#ece7e1;--hi:#e0806f}}
+:root[data-theme="dark"]{--bg:#1d1b19;--fg:#ece7e1;--mute:#9a9188;--line:#ece7e1;--pb:#0d0c0b;--pw:#ece7e1;--hi:#e0806f}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;min-height:100%;background:var(--bg);color:var(--fg);font-family:Georgia,"Times New Roman",serif}
+main{max-width:460px;margin:0 auto;padding:24px 16px 32px;display:flex;flex-direction:column;gap:18px}
+h1{font-size:1.6rem;font-weight:normal;letter-spacing:.04em;margin:0;text-align:center}
+.seg{display:flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.seg button{flex:1}
+button{min-height:44px;font:inherit;color:var(--fg);background:none;border:0;padding:10px 12px;cursor:pointer}
+button[aria-pressed="true"]{background:var(--fg);color:var(--bg)}
+.seg[hidden]{display:none}
+#collect{align-self:center}
+.grid{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0 14px}
+.grid button{border:1px solid var(--line);border-radius:6px;padding:6px 10px}
+.grid button:disabled{opacity:.45;cursor:default}
+#collBody p{margin:10px 0 0}
+button:focus-visible,[data-i]:focus-visible{outline:2px solid var(--hi);outline-offset:2px}
+.opts{display:flex;justify-content:space-between;align-items:center;gap:12px;font-size:.95rem;flex-wrap:wrap}
+.opts label{display:flex;gap:8px;align-items:center}
+.again{border:1px solid var(--line);border-radius:6px}
+svg{width:100%;height:auto;max-width:420px;margin:0 auto;display:block;touch-action:manipulation}
+[data-i]{cursor:pointer;outline:none;-webkit-user-select:none;user-select:none}
+#status{text-align:center;min-height:1.5em;font-size:1.05rem}
+#score{text-align:center;color:var(--mute);font-size:.9rem}
+details{color:var(--mute);font-size:.9rem;line-height:1.5}
+summary{cursor:pointer}
+</style>
+</head>
+<body>
+<main>
+<h1>Terni Lapilli</h1>
+<div class="seg" role="group" aria-label="Modalità">
+<button id="mCpu" aria-pressed="true">Contro il computer</button>
+<button id="mTwo" aria-pressed="false">In due</button>
+</div>
+<div class="seg" id="levels" role="group" aria-label="Difficoltà">
+<button data-l="easy">Facile</button>
+<button data-l="mid">Medio</button>
+<button data-l="hard">Difficile</button>
+</div>
+<svg id="board" viewBox="0 0 300 300" role="group" aria-label="Tabellone"></svg>
+<div id="status" aria-live="polite"></div>
+<button class="again" id="collect" hidden></button>
+<div id="score"></div>
+<div class="opts">
+<label><input type="checkbox" id="center"> Solo tris passanti per il centro</label>
+<button class="again" id="again">Nuova partita</button>
+</div>
+<details>
+<summary>Collezione</summary>
+<div id="collBody"></div>
+</details>
+<details>
+<summary>Regole</summary>
+<p>Ogni giocatore ha 3 pedine, da posizionare a turno negli incroci liberi. Poi si muove una pedina per turno, di un incrocio adiacente lungo le linee, senza saltare né catturare. Non si può passare. Vince chi allinea tre pedine (anche in diagonale). Se un giocatore non ha mosse disponibili, perde. Chi perde inizia la partita successiva.</p>
+</details>
+</main>
+<script>
+const ADJ=[[1,3],[0,2,4],[1,5],[0,4,6],[1,3,5,7],[2,4,8],[3,7],[4,6,8],[5,7]];
+const ALL=[[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
+const C=[50,150,250];
+const S={mode:'cpu',level:'mid',center:false,b:[],pl:[0,0],turn:0,sel:null,over:false,win:null,msg:'',score:[0,0],starter:null,busy:false};
+const L=()=>S.center?ALL.filter(l=>l.includes(4)):ALL;
+const wl=(b,p,ls)=>ls.find(l=>l.every(i=>b[i]===p));
+const names=()=>S.mode==='cpu'?['Tu','Computer']:['Giocatore 1','Giocatore 2'];
+const short=['Nero','Bianco'];
+const LV={easy:{d:1,r:.4},mid:{d:3,r:0},hard:{d:5,r:0}};
+const SK=[
+{id:'pn',n:'Pietra nera',f:'#1c1917',r:'#6b625a',s:'c',t:0},
+{id:'pb',n:'Pietra bianca',f:'#fbfaf8',r:'#8a8178',s:'c',t:0},
+{id:'te',n:'Terracotta',f:'#b85c3a',r:'#7a3a22',s:'c',t:0},
+{id:'la',n:'Lapislazzuli',f:'#26418f',r:'#15255a',s:'c',t:1},
+{id:'br',n:'Bronzo',f:'#a9783a',r:'#6b4a1f',s:'d',t:1},
+{id:'ol',n:'Oliva',f:'#6b7a3a',r:'#434d1f',s:'q',t:1},
+{id:'po',n:'Porpora',f:'#6d2a57',r:'#3d1531',s:'d',t:2},
+{id:'or',n:'Oro',f:'#d8b04a',r:'#8f6d1c',s:'o',t:2}];
+const BD=[
+{n:'Incisione',w:0,bg:null,l:null},
+{n:'Marmo',w:2,bg:'#e8e2d8',l:'#5a5249'},
+{n:'Terracotta',w:5,bg:'#c98b68',l:'#4a2a1a'},
+{n:'Basalto',w:9,bg:'#3a3836',l:'#cfc8bd'},
+{n:'Mosaico',w:14,bg:'#d9c9a0',l:'#3b5a78'}];
+let P={wins:0,own:['pn','pb'],skin:'pn',board:0};
+try{Object.assign(P,JSON.parse(localStorage.getItem('tl-save')||'{}'))}catch(e){}
+const save=()=>{try{localStorage.setItem('tl-save',JSON.stringify(P))}catch(e){}};
+const sk=id=>SK.find(s=>s.id===id);
+function pc(s,x,y,R,sel){
+  const st=`fill="${s.f}" stroke="${sel?'var(--hi)':s.r}" stroke-width="${sel?4:2.5}"`;
+  const q=R*.9,d=R*1.2;
+  if(s.s==='q')return `<rect x="${x-q}" y="${y-q}" width="${2*q}" height="${2*q}" rx="5" ${st}/>`;
+  if(s.s==='d')return `<polygon points="${x},${y-d} ${x+d},${y} ${x},${y+d} ${x-d},${y}" ${st}/>`;
+  return `<circle cx="${x}" cy="${y}" r="${R}" ${st}/>`+(s.s==='o'?`<circle cx="${x}" cy="${y}" r="${R*.45}" fill="none" stroke="${s.r}" stroke-width="3"/>`:'');
+}
+function pickSkins(){
+  let o;
+  if(S.mode==='cpu'){
+    const lv=['easy','mid','hard'].indexOf(S.level);
+    const pool=SK.filter(s=>s.t<=lv&&s.id!==P.skin);
+    o=pool[Math.floor(Math.random()*pool.length)].id;
+  }else o=P.skin==='pb'?'pn':'pb';
+  S.skin=[P.skin,o];
+}
+function finish(p,t){
+  S.over=true;S.score[p]++;S.starter=1-p;S.canCollect=false;
+  S.msg=S.mode==='cpu'?(p===0?'Hai vinto!':'Ha vinto il computer.'):`Vince il giocatore ${p+1}!`;
+  if(t)S.msg+=' '+t;
+  if(S.mode==='cpu'&&p===0){
+    P.wins++;
+    const nb=BD.findIndex(b=>b.w===P.wins);
+    if(nb>0)S.msg+=` Nuovo tabellone: ${BD[nb].n}.`;
+    S.canCollect=!P.own.includes(S.skin[1]);
+    save();drawColl();
+  }
+}
+function drawColl(){
+  const pv=(s,lock)=>`<svg viewBox="0 0 50 50" width="34" height="34">${lock?'<circle cx="25" cy="25" r="17" fill="none" stroke="var(--mute)" stroke-width="2" stroke-dasharray="4 4"/>':pc(s,25,25,16)}</svg>`;
+  let h=`<p>Vittorie contro il computer: ${P.wins}. Vincendo sblocchi nuovi tabelloni e puoi raccogliere le pedine dei tuoi avversari (le più rare compaiono nei livelli più alti).</p><p>Pedine</p><div class="grid">`;
+  SK.forEach(s=>{const o=P.own.includes(s.id);h+=`<button data-k="${s.id}" ${o?'':'disabled'} aria-pressed="${P.skin===s.id}" aria-label="${o?s.n:'Pedina da trovare'}" title="${o?s.n:'Da trovare'}">${pv(s,!o)}</button>`});
+  h+='</div><p>Tabelloni</p><div class="grid">';
+  BD.forEach((b,i)=>{const o=P.wins>=b.w;h+=`<button data-b="${i}" ${o?'':'disabled'} aria-pressed="${P.board===i}">${o?b.n:b.w+' vittorie'}</button>`});
+  document.getElementById('collBody').innerHTML=h+'</div>';
+}
+
+function gen(b,pl,p){
+  const m=[];
+  if(pl[p]<3){b.forEach((v,i)=>{if(v===null)m.push([null,i])})}
+  else b.forEach((v,i)=>{if(v===p)ADJ[i].forEach(j=>{if(b[j]===null)m.push([i,j])})});
+  return m;
+}
+function step(b,pl,p,f,t){
+  const nb=b.slice(),np=pl.slice();
+  if(f===null)np[p]++;else nb[f]=null;
+  nb[t]=p;return[nb,np];
+}
+function nega(b,pl,p,d,ls){
+  const ms=gen(b,pl,p);
+  if(!ms.length)return -100-d;
+  if(d===0)return 0;
+  let best=-1e9;
+  for(const[f,t]of ms){
+    const[nb,np]=step(b,pl,p,f,t);
+    const v=wl(nb,p,ls)?100+d:-nega(nb,np,1-p,d-1,ls);
+    if(v>best)best=v;
+  }
+  return best;
+}
+function aiMove(){
+  const p=S.turn,ls=L(),ms=gen(S.b,S.pl,p);
+  const lv=LV[S.level];
+  if(Math.random()<lv.r)return ms[Math.floor(Math.random()*ms.length)];
+  let best=-1e9,pool=[];
+  for(const mv of ms){
+    const[nb,np]=step(S.b,S.pl,p,mv[0],mv[1]);
+    const v=wl(nb,p,ls)?1000:-nega(nb,np,1-p,lv.d,ls);
+    if(v>best){best=v;pool=[mv]}else if(v===best)pool.push(mv);
+  }
+  return pool[Math.floor(Math.random()*pool.length)];
+}
+
+function start(){
+  S.b=Array(9).fill(null);S.pl=[0,0];S.sel=null;S.over=false;S.win=null;S.msg='';S.busy=false;
+  S.turn=S.starter===null?Math.floor(Math.random()*2):S.starter;
+  pickSkins();
+  render();next();
+}
+function next(){
+  if(!S.over&&S.mode==='cpu'&&S.turn===1){
+    S.busy=true;render();
+    setTimeout(()=>{S.busy=false;const m=aiMove();apply(m[0],m[1])},550);
+  }
+}
+function apply(f,t){
+  const p=S.turn;
+  [S.b,S.pl]=step(S.b,S.pl,p,f,t);
+  S.sel=null;
+  const w=wl(S.b,p,L());
+  if(w){S.win=w;finish(p)}
+  else{
+    S.turn=1-p;
+    if(!gen(S.b,S.pl,S.turn).length)finish(p,"L'avversario non ha mosse.")
+  }
+  render();next();
+}
+function click(i){
+  if(S.over||S.busy||(S.mode==='cpu'&&S.turn===1))return;
+  const p=S.turn;
+  if(S.pl[p]<3){if(S.b[i]===null)apply(null,i)}
+  else if(S.b[i]===p){S.sel=i;render()}
+  else if(S.sel!==null&&S.b[i]===null&&ADJ[S.sel].includes(i))apply(S.sel,i);
+}
+
+function render(){
+  const b0=BD[P.board],lc=b0.l||'var(--line)';
+  let h=(b0.bg?'<rect x="15" y="15" width="270" height="270" rx="10" fill="'+b0.bg+'"/>':'')+'<path d="M50 50H250V250H50Z M50 150H250 M150 50V250" fill="none" stroke="'+lc+'" stroke-width="2"/>';
+  if(S.win){const a=S.win[0],c=S.win[2];h+=`<line x1="${C[a%3]}" y1="${C[Math.floor(a/3)]}" x2="${C[c%3]}" y2="${C[Math.floor(c/3)]}" stroke="var(--hi)" stroke-width="6" stroke-linecap="round" opacity=".55"/>`}
+  const targets=S.sel!==null?ADJ[S.sel].filter(j=>S.b[j]===null):[];
+  S.b.forEach((v,i)=>{
+    const x=C[i%3],y=C[Math.floor(i/3)];
+    h+=`<g data-i="${i}" tabindex="0" role="button" aria-label="Incrocio ${i+1}${v===null?', libero':', '+names()[v]}">`;
+    h+=`<circle cx="${x}" cy="${y}" r="34" fill="transparent"/>`;
+    if(v===null){
+      const t=targets.includes(i);
+      h+=`<circle cx="${x}" cy="${y}" r="${t?11:8}" fill="${t?'var(--hi)':(b0.bg||'var(--bg)')}" stroke="${t?'var(--hi)':lc}" stroke-width="2"/>`;
+    }else{
+      h+=pc(sk(S.skin[v]),x,y,22,S.sel===i);
+    }
+    h+='</g>';
+  });
+  document.getElementById('board').innerHTML=h;
+  const p=S.turn,n=names();
+  let st=S.msg;
+  if(!S.over){
+    const placing=S.pl[p]<3;
+    st=S.busy?'Il computer pensa…':`${n[p]}: ${placing?'posiziona una pedina':(S.sel===null?'scegli una pedina da muovere':'scegli dove muoverla')}`;
+  }
+  document.getElementById('status').textContent=st;
+  const cb=document.getElementById('collect');
+  cb.hidden=!(S.over&&S.canCollect);
+  if(!cb.hidden)cb.textContent=`Aggiungi «${sk(S.skin[1]).n}» alla collezione`;
+  document.getElementById('score').textContent=`${n[0]} ${S.score[0]} – ${S.score[1]} ${n[1]}`+(S.over?' · tocca a "Nuova partita"':'');
+}
+
+const bd=document.getElementById('board');
+bd.addEventListener('click',e=>{const g=e.target.closest('[data-i]');if(g)click(+g.dataset.i)});
+bd.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){const g=e.target.closest('[data-i]');if(g){e.preventDefault();click(+g.dataset.i)}}});
+function setMode(m){
+  S.mode=m;S.score=[0,0];S.starter=null;
+  document.getElementById('levels').hidden=m!=='cpu';
+  document.getElementById('mCpu').setAttribute('aria-pressed',m==='cpu');
+  document.getElementById('mTwo').setAttribute('aria-pressed',m==='two');
+  start();
+}
+document.getElementById('mCpu').onclick=()=>setMode('cpu');
+document.getElementById('mTwo').onclick=()=>setMode('two');
+document.getElementById('center').onchange=e=>{S.center=e.target.checked;S.score=[0,0];S.starter=null;start()};
+document.getElementById('again').onclick=start;
+function setLevel(l){
+  S.level=l;S.score=[0,0];S.starter=null;
+  document.querySelectorAll('#levels button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.l===l));
+  start();
+}
+document.querySelectorAll('#levels button').forEach(b=>b.onclick=()=>setLevel(b.dataset.l));
+document.getElementById('collect').onclick=()=>{P.own.push(S.skin[1]);S.canCollect=false;S.msg+=' Pedina aggiunta alla collezione!';save();drawColl();render()};
+document.getElementById('collBody').onclick=e=>{
+  const b=e.target.closest('button');if(!b||b.disabled)return;
+  if(b.dataset.k){P.skin=b.dataset.k;save();drawColl();start()}
+  else{P.board=+b.dataset.b;save();drawColl();render()}
+};
+drawColl();
+setLevel('mid');
+</script>
+</body>
+</html>
